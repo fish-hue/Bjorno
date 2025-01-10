@@ -1,5 +1,3 @@
-# .github/dependabot.yml
-
 version: 2
 updates:
   - package-ecosystem: "pip"
@@ -10,3 +8,5 @@ updates:
       prefix: "fix(deps)"
     open-pull-requests-limit: 5
     target-branch: "dev"
+    # Enable security updates only for critical vulnerabilities
+    security-updates-only: true
