@@ -1,7 +1,3 @@
-# nmap_vuln_scanner.py
-# This script performs vulnerability scanning using Nmap on specified IP addresses.
-# It scans for vulnerabilities on various ports and saves the results and progress.
-
 import os
 import pandas as pd
 import subprocess
@@ -12,6 +8,7 @@ from rich.console import Console
 from rich.progress import Progress, BarColumn, TextColumn
 from shared import SharedData
 from logger import Logger
+from threading import Lock
 
 logger = Logger(name="nmap_vuln_scanner.py", level=logging.INFO)
 
@@ -30,6 +27,7 @@ class NmapVulnScanner:
         self.scan_results = []
         self.summary_file = self.shared_data.vuln_summary_file
         self.create_summary_file()
+        self.lock = Lock()  # To handle concurrency in result writing
         logger.debug("NmapVulnScanner initialized.")
 
     def create_summary_file(self):
@@ -46,23 +44,23 @@ class NmapVulnScanner:
         Updates the summary file with the scan results.
         """
         try:
-            # Read existing data
-            df = pd.read_csv(self.summary_file)
-            
-            # Create new data entry
-            new_data = pd.DataFrame([{"IP": ip, "Hostname": hostname, "MAC Address": mac, "Port": port, "Vulnerabilities": vulnerabilities}])
-            
-            # Append new data
-            df = pd.concat([df, new_data], ignore_index=True)
-            
-            # Remove duplicates based on IP and MAC Address, keeping the last occurrence
-            df.drop_duplicates(subset=["IP", "MAC Address"], keep='last', inplace=True)
-            
-            # Save the updated data back to the summary file
-            df.to_csv(self.summary_file, index=False)
+            with self.lock:  # Ensure thread-safe file access
+                # Read existing data
+                df = pd.read_csv(self.summary_file)
+                
+                # Create new data entry
+                new_data = pd.DataFrame([{"IP": ip, "Hostname": hostname, "MAC Address": mac, "Port": port, "Vulnerabilities": vulnerabilities}])
+                
+                # Append new data
+                df = pd.concat([df, new_data], ignore_index=True)
+                
+                # Remove duplicates based on IP and MAC Address, keeping the last occurrence
+                df.drop_duplicates(subset=["IP", "MAC Address"], keep='last', inplace=True)
+                
+                # Save the updated data back to the summary file
+                df.to_csv(self.summary_file, index=False)
         except Exception as e:
             logger.error(f"Error updating summary file: {e}")
-
 
     def scan_vulnerabilities(self, ip, hostname, mac, ports):
         combined_result = ""
@@ -80,6 +78,9 @@ class NmapVulnScanner:
 
             vulnerabilities = self.parse_vulnerabilities(result.stdout)
             self.update_summary_file(ip, hostname, mac, ",".join(ports), vulnerabilities)
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Nmap error scanning {ip}: {e}")
+            success = False
         except Exception as e:
             logger.error(f"Error scanning {ip}: {e}")
             success = False  # Mark as failed if an error occurs
@@ -99,7 +100,7 @@ class NmapVulnScanner:
             self.save_results(row["MAC Address"], ip, scan_result)
             return 'success'
         else:
-            return 'success' # considering failed as success as we just need to scan vulnerabilities once
+            return 'success'  # Considering failed as success to ensure it doesn't halt the scanning
             # return 'failed'
 
     def parse_vulnerabilities(self, scan_result):
@@ -139,7 +140,6 @@ class NmapVulnScanner:
             logger.info(f"Results saved to {result_file}")
         except Exception as e:
             logger.error(f"Error saving scan results for {ip}: {e}")
-
 
     def save_summary(self):
         """
