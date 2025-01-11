@@ -1,4 +1,4 @@
-#webapp.py 
+# webapp.py 
 import json
 import threading
 import http.server
@@ -17,7 +17,7 @@ from utils import WebUtils
 logger = Logger(name="webapp.py", level=logging.DEBUG)
 
 # Set the path to the favicon
-favicon_path = os.path.join(shared_data.webdir, '/images/favicon.ico')
+favicon_path = os.path.join(shared_data.webdir, 'images/favicon.ico')
 
 class CustomHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
@@ -57,25 +57,27 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
         self.send_gzipped_response(content, content_type)
 
     def do_GET(self):
-        # Handle GET requests. Serve the HTML interface and the EPD image.
-        if self.path == '/index.html' or self.path == '/':
+        # Mapping of paths to their corresponding files and content types
+        static_files = {
+            '/index.html': ('index.html', 'text/html'),
+            '/config.html': ('config.html', 'text/html'),
+            '/actions.html': ('actions.html', 'text/html'),
+            '/network.html': ('network.html', 'text/html'),
+            '/netkb.html': ('netkb.html', 'text/html'),
+            '/bjorn.html': ('bjorn.html', 'text/html'),
+            '/loot.html': ('loot.html', 'text/html'),
+            '/credentials.html': ('credentials.html', 'text/html'),
+            '/manual.html': ('manual.html', 'text/html'),
+            '/favicon.ico': ('images/favicon.ico', 'image/x-icon')
+        }
+
+        # Check if the path is for a static file and serve it gzipped
+        if self.path in static_files:
+            file_name, content_type = static_files[self.path]
+            file_path = os.path.join(self.shared_data.webdir, file_name)
+            self.serve_file_gzipped(file_path, content_type)
+        elif self.path == '/' or self.path == '/index.html':
             self.serve_file_gzipped(os.path.join(self.shared_data.webdir, 'index.html'), 'text/html')
-        elif self.path == '/config.html':
-            self.serve_file_gzipped(os.path.join(self.shared_data.webdir, 'config.html'), 'text/html')
-        elif self.path == '/actions.html':
-            self.serve_file_gzipped(os.path.join(self.shared_data.webdir, 'actions.html'), 'text/html')
-        elif self.path == '/network.html':
-            self.serve_file_gzipped(os.path.join(self.shared_data.webdir, 'network.html'), 'text/html')
-        elif self.path == '/netkb.html':
-            self.serve_file_gzipped(os.path.join(self.shared_data.webdir, 'netkb.html'), 'text/html')
-        elif self.path == '/bjorn.html':
-            self.serve_file_gzipped(os.path.join(self.shared_data.webdir, 'bjorn.html'), 'text/html')
-        elif self.path == '/loot.html':
-            self.serve_file_gzipped(os.path.join(self.shared_data.webdir, 'loot.html'), 'text/html')
-        elif self.path == '/credentials.html':
-            self.serve_file_gzipped(os.path.join(self.shared_data.webdir, 'credentials.html'), 'text/html')
-        elif self.path == '/manual.html':
-            self.serve_file_gzipped(os.path.join(self.shared_data.webdir, 'manual.html'), 'text/html')
         elif self.path == '/load_config':
             self.web_utils.serve_current_config(self)
         elif self.path == '/restore_default_config':
@@ -96,8 +98,6 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
             self.web_utils.serve_netkb_data_json(self)
         elif self.path.startswith('/screen.png'):
             self.web_utils.serve_image(self)
-        elif self.path == '/favicon.ico':
-            self.web_utils.serve_favicon(self)
         elif self.path == '/manifest.json':
             self.web_utils.serve_manifest(self)
         elif self.path == '/apple-touch-icon':
